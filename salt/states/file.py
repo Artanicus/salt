@@ -2342,8 +2342,7 @@ def managed(name,
         ret['result'] = False
         ret['comment'] = 'Unable to manage file: {0}'.format(exc)
         return ret
-
-    # Gather the source file from the server
+    # Gather the source file and related information
     try:
         sfn, source_sum, comment_ = __salt__['file.get_managed'](
             name,
@@ -2447,7 +2446,7 @@ def managed(name,
                    'comment': '',
                    'name': name,
                    'result': True}
-
+    # heavy lifting performed by file.manage_file
     if comment_ and contents is None:
         return _error(ret, comment_)
     else:
@@ -2458,6 +2457,7 @@ def managed(name,
                 ret,
                 source,
                 source_sum,
+                source_signature,
                 user,
                 group,
                 mode,

@@ -4581,6 +4581,7 @@ def manage_file(name,
                 ret,
                 source,
                 source_sum,
+                source_signature,
                 user,
                 group,
                 mode,
@@ -4625,6 +4626,9 @@ def manage_file(name,
 
     source_hash
         sum hash for source
+
+    source_signature
+         The URI of a file that contains a detached signature conforming to RFC48880
 
     user
         user owner
@@ -4725,12 +4729,23 @@ def manage_file(name,
                 except Exception as exc:
                     log.warning('Unable to stat %s: %s', sfn, exc)
 
-    # Check changes if the target file exists
+    # Check changes and signature if the target file exists
     if os.path.isfile(name) or os.path.islink(name):
         if os.path.islink(name) and follow_symlinks:
             real_name = os.path.realpath(name)
         else:
             real_name = name
+
+        # If GPG signature verification was requested
+        if source_signature:
+            signature_verification = verify_signature(signature=source_signature,
+                    name=real_name,
+                    ret=ret,
+                    saltenv=saltenv
+                    )
+            # if result was a failure, can just pass it on
+            if not signature_verification['result']:
+                return signature_verification
 
         # Only test the checksums on files with managed contents
         if source and not (not follow_symlinks and os.path.islink(real_name)):
@@ -4962,6 +4977,18 @@ def manage_file(name,
                     )
                     ret['result'] = False
                     return ret
+
+            # If GPG signature verification was requested
+            if source_signature:
+                signature_verification = verify_signature(signature=source_signature,
+                        name=sfn,
+                        ret=ret,
+                        saltenv=saltenv
+                        )
+                # if result was a failure, can just pass it on
+                if not signature_verification['result']:
+                    return signature_verification
+
             if not os.path.isdir(contain_dir):
                 if makedirs:
                     _set_mode_and_make_dirs(name, dir_mode, mode, user, group)
@@ -6046,3 +6073,66 @@ def diskusage(path):
 
     ret = total_size
     return ret
+
+
+def verify_signature(signature,
+        name,
+        ret,
+        saltenv='base'):
+    '''
+    .. versionadded:: Nitrogen
+
+    Used by :py:func:`file.manage_file <salt.modules.file.manage_file>` to
+    verify the GPG detached signature of a given file name.
+
+    signature
+        The URI of a file that contains a detached signature conforming to RFC48880
+
+    name
+        Path to file being verified.
+
+    ret
+        The initial state return data structure. Pass in ``None`` to use the
+        default structure.
+
+    saltenv : base
+     Salt fileserver environment from which to retrieve the signature. This
+     value will only be used when ``source_signature`` refers to a file on the
+     Salt fileserver (i.e. one beginnning with ``salt://``).
+    '''
+
+    if not ret:
+        ret = {'name': name,
+               'changes': {},
+               'comment': '',
+               'result': True}
+
+    # Turn the URI into a locally cached signature file, store filename. Caching may fail.
+    try:
+        cached_signature = __salt__['cp.cache_file'](signature, saltenv)
+    except Exception as exc:
+        ret['comment'] = 'Failed to retrieve signature: {1}'.format(signature, exc)
+        ret['result'] = False
+        return ret
+
+    # fail if gpg.verify fails
+    gpg_ret = __salt__['gpg.verify'](filename=name, signature=cached_signature)
+    log.info('GPG detached signature verification result: {0}'.format(gpg_ret['message']))
+    if not gpg_ret['res']:
+        ret['comment'] = (
+                'Managed file fails GPG detached signature verification against \'{0}\'. '
+                'Make sure the relevant GPG key has been imported with for example \'gpg.present\' '
+                'and is still valid. GPG error was: {1}'.format(signature, gpg_ret['message'])
+                )
+        ret['result'] = False
+        log.info('Failed GPG detached signature verification for {0} with message: {1}'.format(name, gpg_ret['message']))
+        return ret
+    else:
+        # successful signature verification
+        log.info(('GPG detached signature verification successful: {0}. '
+            '[{1}]: {2}. Trust level: {3}: {4}'.format(name,
+                    gpg_ret['username'],
+                    gpg_ret['key_id'],
+                    gpg_ret['trust_level'],
+                    gpg_ret['message'])))
+        return ret
