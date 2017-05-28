@@ -1512,6 +1512,7 @@ def managed(name,
             source=None,
             source_hash='',
             source_hash_name=None,
+            source_signature='',
             user=None,
             group=None,
             mode=None,
@@ -1709,6 +1710,15 @@ def managed(name,
             example above, simply using ``foo.txt`` would not match.
 
         .. versionadded:: 2016.3.5
+
+    source_signature
+        The URI of a file that contains a detached signature conforming to RFC48880
+
+        .. note::
+            The public key to verify the signature against needs to already be added to the
+            gpg keychain of the salt user. This can be achieved with the gpg.present state.
+
+        .. versionadded:: Nitrogen
 
     user
         The user to own the file, this defaults to the user salt is running as
